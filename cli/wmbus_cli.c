@@ -1,5 +1,6 @@
 #include "../wmbus_app_i.h"
 #include "../subghz/wmbus_worker.h"
+#include "wmbus_cli.h"
 
 #include <furi.h>
 #include <stdio.h>

@@ -14,6 +14,7 @@
 #include "key_store.h"
 #include "meters_db.h"
 #include "logger.h"
+#include "cli/wmbus_cli.h"
 #include "views/scan_canvas.h"
 #include "views/detail_canvas.h"
 #include "views/about_canvas.h"
