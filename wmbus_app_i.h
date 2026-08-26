@@ -129,6 +129,16 @@ typedef enum {
 
 typedef struct WmbusApp WmbusApp;
 typedef struct WmbusWorker WmbusWorker;
+typedef struct {
+    bool active;
+    FuriCliSession* session;
+} WmbusCliState;
+typedef void (*WmbusTelegramCallback)(
+    WmbusApp* app,
+    const uint8_t* frame,
+    size_t len,
+    int8_t rssi,
+    void* context);
 
 struct ScanCanvas;        /* fwd-decl: defined in views/scan_canvas.h     */
 struct DetailCanvas;      /* fwd-decl: defined in views/detail_canvas.h   */
@@ -137,6 +147,8 @@ struct KeyStore;          /* fwd-decl: defined in key_store.h             */
 
 struct WmbusApp {
     Gui*               gui;
+    WmbusTelegramCallback telegram_callback;
+    void* telegram_callback_context;
     ViewDispatcher*    view_dispatcher;
     SceneManager*      scene_manager;
     Submenu*           submenu;
@@ -188,6 +200,7 @@ struct WmbusApp {
 
 /* Lifecycle */
 WmbusApp* wmbus_app_alloc(void);
+WmbusApp* wmbus_app_alloc_headless(void);
 void wmbus_app_free(WmbusApp* app);
 
 /* Called from worker context with a fully decoded link-layer frame. */

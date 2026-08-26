@@ -138,7 +138,7 @@ static bool on_back_event(void* ctx) {
 
 /* ------------- App lifecycle ------------- */
 
-WmbusApp* wmbus_app_alloc(void) {
+static WmbusApp* wmbus_app_alloc_common(void) {
     WmbusApp* app = malloc(sizeof(WmbusApp));
     memset(app, 0, sizeof(*app));
 
@@ -155,12 +155,20 @@ WmbusApp* wmbus_app_alloc(void) {
     app->lock = furi_mutex_alloc(FuriMutexTypeNormal);
     app->text_buf = furi_string_alloc();
 
-    app->gui = furi_record_open(RECORD_GUI);
     app->storage = furi_record_open(RECORD_STORAGE);
     app->notifications = furi_record_open(RECORD_NOTIFICATION);
 
     app->key_store = key_store_alloc(app->storage);
     key_store_load(app->key_store);
+
+    return app;
+}
+
+WmbusApp* wmbus_app_alloc(void) {
+    WmbusApp* app = wmbus_app_alloc_common();
+
+    app->gui = furi_record_open(RECORD_GUI);
+
     app->view_dispatcher = view_dispatcher_alloc();
     app->scene_manager   = scene_manager_alloc(&k_scene_handlers, app);
 
@@ -188,6 +196,14 @@ WmbusApp* wmbus_app_alloc(void) {
     view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
 
     app->worker = wmbus_worker_alloc(app);
+    return app;
+}
+
+WmbusApp* wmbus_app_alloc_headless(void) {
+    WmbusApp* app = wmbus_app_alloc_common();
+
+    app->worker = wmbus_worker_alloc(app);
+
     return app;
 }
 
@@ -267,7 +283,14 @@ void wmbus_scanning_indicator_on (WmbusApp* app) { led_on(app); }
 
 void wmbus_app_on_telegram(WmbusApp* app, const uint8_t* fr, size_t len, int8_t rssi) {
     if(!fr || len < 10 || len > WMBUS_MAX_FRAME) return;
-
+    if(app->telegram_callback) {
+        app->telegram_callback(
+            app,
+            fr,
+            len,
+            rssi,
+            app->telegram_callback_context);
+    }
     WmbusLinkFrame link;
     if(!wmbus_link_parse(fr, len, &link)) return;
 
