@@ -141,14 +141,16 @@ static bool on_back_event(void* ctx) {
 
 static WmbusApp* wmbus_app_alloc_common(void) {
     WmbusApp* app = malloc(sizeof(WmbusApp));
+    furi_check(app != NULL);
+
     memset(app, 0, sizeof(*app));
 
     /* Combined T+C is the broadest single-config receiver in the EU. */
-    app->settings.mode      = WmbusModeCT;
-    app->settings.freq_hz   = 868950000;
-    app->settings.logging   = false;
+    app->settings.mode = WmbusModeCT;
+    app->settings.freq_hz = 868950000;
+    app->settings.logging = false;
     app->settings.auto_decrypt = true;
-    app->settings.module    = WmbusModuleAuto;
+    app->settings.module = WmbusModuleAuto;
     app->selected = -1;
 
     subghz_devices_init();
@@ -171,40 +173,95 @@ WmbusApp* wmbus_app_alloc(void) {
     app->gui = furi_record_open(RECORD_GUI);
 
     app->view_dispatcher = view_dispatcher_alloc();
-    app->scene_manager   = scene_manager_alloc(&k_scene_handlers, app);
+    app->scene_manager = scene_manager_alloc(&k_scene_handlers, app);
 
-    view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
-    view_dispatcher_set_custom_event_callback(app->view_dispatcher, on_custom_event);
-    view_dispatcher_set_navigation_event_callback(app->view_dispatcher, on_back_event);
-    view_dispatcher_set_tick_event_callback(app->view_dispatcher, on_tick_event, 500);
+    view_dispatcher_set_event_callback_context(
+        app->view_dispatcher,
+        app);
+
+    view_dispatcher_set_custom_event_callback(
+        app->view_dispatcher,
+        on_custom_event);
+
+    view_dispatcher_set_navigation_event_callback(
+        app->view_dispatcher,
+        on_back_event);
+
+    view_dispatcher_set_tick_event_callback(
+        app->view_dispatcher,
+        on_tick_event,
+        500);
 
     app->submenu = submenu_alloc();
     app->var_list = variable_item_list_alloc();
     app->text_box = text_box_alloc();
     app->popup = popup_alloc();
-    app->scan_canvas   = scan_canvas_alloc();
+    app->scan_canvas = scan_canvas_alloc();
     app->detail_canvas = detail_canvas_alloc();
-    app->about_canvas  = about_canvas_alloc();
+    app->about_canvas = about_canvas_alloc();
 
-    view_dispatcher_add_view(app->view_dispatcher, WmbusViewSubmenu,      submenu_get_view(app->submenu));
-    view_dispatcher_add_view(app->view_dispatcher, WmbusViewSettings,     variable_item_list_get_view(app->var_list));
-    view_dispatcher_add_view(app->view_dispatcher, WmbusViewDetail,       text_box_get_view(app->text_box));
-    view_dispatcher_add_view(app->view_dispatcher, WmbusViewPopup,        popup_get_view(app->popup));
-    view_dispatcher_add_view(app->view_dispatcher, WmbusViewScan,         scan_canvas_get_view(app->scan_canvas));
-    view_dispatcher_add_view(app->view_dispatcher, WmbusViewDetailCanvas, detail_canvas_get_view(app->detail_canvas));
-    view_dispatcher_add_view(app->view_dispatcher, WmbusViewAbout,        about_canvas_get_view(app->about_canvas));
+    view_dispatcher_add_view(
+        app->view_dispatcher,
+        WmbusViewSubmenu,
+        submenu_get_view(app->submenu));
 
-    view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
+    view_dispatcher_add_view(
+        app->view_dispatcher,
+        WmbusViewSettings,
+        variable_item_list_get_view(app->var_list));
 
+    view_dispatcher_add_view(
+        app->view_dispatcher,
+        WmbusViewDetail,
+        text_box_get_view(app->text_box));
+
+    view_dispatcher_add_view(
+        app->view_dispatcher,
+        WmbusViewPopup,
+        popup_get_view(app->popup));
+
+    view_dispatcher_add_view(
+        app->view_dispatcher,
+        WmbusViewScan,
+        scan_canvas_get_view(app->scan_canvas));
+
+    view_dispatcher_add_view(
+        app->view_dispatcher,
+        WmbusViewDetailCanvas,
+        detail_canvas_get_view(app->detail_canvas));
+
+    view_dispatcher_add_view(
+        app->view_dispatcher,
+        WmbusViewAbout,
+        about_canvas_get_view(app->about_canvas));
+
+    view_dispatcher_attach_to_gui(
+        app->view_dispatcher,
+        app->gui,
+        ViewDispatcherTypeFullscreen);
+
+    /*
+     * Allocate exactly one worker for this WmbusApp.
+     * wmbus_worker_start()/stop() controls the worker thread;
+     * wmbus_worker_free() destroys it.
+     */
     app->worker = wmbus_worker_alloc(app);
+
     return app;
 }
 
 WmbusApp* wmbus_app_alloc_headless(void) {
     WmbusApp* app = wmbus_app_alloc_common();
 
+    /*
+     * Headless applications still have exactly one worker.
+     * There is no GUI/ViewDispatcher here.
+     */
     app->worker = wmbus_worker_alloc(app);
 
+    /*
+     * Register the CLI command using this WmbusApp as its context.
+     */
     wmbus_cli_register(app);
 
     return app;
@@ -212,19 +269,45 @@ WmbusApp* wmbus_app_alloc_headless(void) {
 
 void wmbus_app_free(WmbusApp* app) {
     if(!app) return;
-    /* Make sure the LED is off and the radio is parked before we free
-     * anything — leaving the cyan blink on after exit was a visible bug. */
-    wmbus_cli_unregister(app);
-    wmbus_scanning_stop(app);
-    wmbus_worker_free(app->worker);
 
-    view_dispatcher_remove_view(app->view_dispatcher, WmbusViewSubmenu);
-    view_dispatcher_remove_view(app->view_dispatcher, WmbusViewSettings);
-    view_dispatcher_remove_view(app->view_dispatcher, WmbusViewDetail);
-    view_dispatcher_remove_view(app->view_dispatcher, WmbusViewPopup);
-    view_dispatcher_remove_view(app->view_dispatcher, WmbusViewScan);
-    view_dispatcher_remove_view(app->view_dispatcher, WmbusViewDetailCanvas);
-    view_dispatcher_remove_view(app->view_dispatcher, WmbusViewAbout);
+    /*
+     * This is the GUI application's destructor.
+     * Stop the receiver BEFORE destroying the worker.
+     */
+    wmbus_scanning_stop(app);
+
+    if(app->worker) {
+        wmbus_worker_free(app->worker);
+        app->worker = NULL;
+    }
+
+    view_dispatcher_remove_view(
+        app->view_dispatcher,
+        WmbusViewSubmenu);
+
+    view_dispatcher_remove_view(
+        app->view_dispatcher,
+        WmbusViewSettings);
+
+    view_dispatcher_remove_view(
+        app->view_dispatcher,
+        WmbusViewDetail);
+
+    view_dispatcher_remove_view(
+        app->view_dispatcher,
+        WmbusViewPopup);
+
+    view_dispatcher_remove_view(
+        app->view_dispatcher,
+        WmbusViewScan);
+
+    view_dispatcher_remove_view(
+        app->view_dispatcher,
+        WmbusViewDetailCanvas);
+
+    view_dispatcher_remove_view(
+        app->view_dispatcher,
+        WmbusViewAbout);
 
     submenu_free(app->submenu);
     variable_item_list_free(app->var_list);
@@ -237,15 +320,87 @@ void wmbus_app_free(WmbusApp* app) {
     scene_manager_free(app->scene_manager);
     view_dispatcher_free(app->view_dispatcher);
 
-    if(app->key_store) key_store_free(app->key_store);
+    if(app->key_store) {
+        key_store_free(app->key_store);
+        app->key_store = NULL;
+    }
+
+    if(app->notifications) {
+        furi_record_close(RECORD_NOTIFICATION);
+        app->notifications = NULL;
+    }
+
+    if(app->storage) {
+        furi_record_close(RECORD_STORAGE);
+        app->storage = NULL;
+    }
+
+    if(app->gui) {
+        furi_record_close(RECORD_GUI);
+        app->gui = NULL;
+    }
 
     subghz_devices_deinit();
 
-    furi_record_close(RECORD_NOTIFICATION);
-    furi_record_close(RECORD_STORAGE);
-    furi_record_close(RECORD_GUI);
-    furi_string_free(app->text_buf);
-    furi_mutex_free(app->lock);
+    if(app->text_buf) {
+        furi_string_free(app->text_buf);
+        app->text_buf = NULL;
+    }
+
+    if(app->lock) {
+        furi_mutex_free(app->lock);
+        app->lock = NULL;
+    }
+
+    free(app);
+}
+
+void wmbus_app_free_headless(WmbusApp* app) {
+    if(!app) return;
+
+    /*
+     * Stop the receiver before destroying the worker.
+     */
+    wmbus_scanning_stop(app);
+
+    /*
+     * Remove the CLI command before destroying the WmbusApp that
+     * is stored as its callback context.
+     */
+    wmbus_cli_unregister(app);
+
+    if(app->worker) {
+        wmbus_worker_free(app->worker);
+        app->worker = NULL;
+    }
+
+    if(app->key_store) {
+        key_store_free(app->key_store);
+        app->key_store = NULL;
+    }
+
+    if(app->notifications) {
+        furi_record_close(RECORD_NOTIFICATION);
+        app->notifications = NULL;
+    }
+
+    if(app->storage) {
+        furi_record_close(RECORD_STORAGE);
+        app->storage = NULL;
+    }
+
+    subghz_devices_deinit();
+
+    if(app->text_buf) {
+        furi_string_free(app->text_buf);
+        app->text_buf = NULL;
+    }
+
+    if(app->lock) {
+        furi_mutex_free(app->lock);
+        app->lock = NULL;
+    }
+
     free(app);
 }
 
@@ -569,3 +724,28 @@ int32_t wmbus_app(void* p) {
     wmbus_app_free(app);
     return 0;
 }
+
+int32_t wmbus_headless_app(void* p) {
+    UNUSED(p);
+
+    WmbusApp* app = wmbus_app_alloc_headless();
+
+    /*
+     * The CLI command now owns interaction with the application.
+     *
+     * Keep this thread alive while the CLI command is registered.
+     * The worker itself is a separate thread.
+     */
+    while(true) {
+        furi_delay_ms(1000);
+    }
+
+    /*
+     * Normally unreachable. If you later add a shutdown mechanism,
+     * call wmbus_app_free_headless(app) here.
+     */
+    wmbus_app_free_headless(app);
+
+    return 0;
+}
+

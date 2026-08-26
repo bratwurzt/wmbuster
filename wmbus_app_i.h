@@ -13,6 +13,8 @@
 #include <storage/storage.h>
 #include <notification/notification.h>
 #include <notification/notification_messages.h>
+#include <applications/services/cli/cli.h>
+#include <toolbox/cli/cli_registry.h>
 
 #include "protocol/wmbus_link.h"
 
@@ -144,8 +146,10 @@ struct KeyStore;          /* fwd-decl: defined in key_store.h             */
 
 struct WmbusApp {
     Gui*               gui;
+
     WmbusTelegramCallback telegram_callback;
     void* telegram_callback_context;
+
     ViewDispatcher*    view_dispatcher;
     SceneManager*      scene_manager;
     Submenu*           submenu;
@@ -195,15 +199,19 @@ struct WmbusApp {
     uint32_t           last_full_rebuild_tick;
 };
 
-/* Lifecycle */
+/* Normal GUI application. */
 WmbusApp* wmbus_app_alloc(void);
+
+/* Headless/CLI application. */
 WmbusApp* wmbus_app_alloc_headless(void);
+
 void wmbus_app_free(WmbusApp* app);
 
 /* Called from worker context with a fully decoded link-layer frame. */
 void wmbus_app_on_telegram(
     WmbusApp* app,
-    const uint8_t* frame, size_t len,
+    const uint8_t* frame,
+    size_t len,
     int8_t rssi);
 
 /* Idempotent helpers: start/stop the SubGHz worker + cyan scan LED.

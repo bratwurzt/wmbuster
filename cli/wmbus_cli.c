@@ -1,6 +1,7 @@
-#include "../wmbus_app_i.h"
-#include "../subghz/wmbus_worker.h"
 #include "wmbus_cli.h"
+
+#include "../subghz/wmbus_worker.h"
+#include "../wmbus_app_i.h"
 
 #include <furi.h>
 #include <stdio.h>
@@ -11,6 +12,7 @@
 #include <toolbox/cli/cli_command.h>
 
 static CliRegistry* wmbus_cli_registry = NULL;
+static WmbusApp* wmbus_cli_app = NULL;
 
 static void wmbus_cli_print_usage(void) {
     printf(
@@ -29,7 +31,21 @@ static void wmbus_cli_command(
     (void)pipe;
 
     WmbusApp* app = context;
+
+    if(!app) {
+        printf("wmbuster: app unavailable\r\n");
+        return;
+    }
+
     const char* cmd = furi_string_get_cstr(args);
+
+    /*
+     * furi_string_get_cstr(args) contains the complete argument string.
+     * Strip leading whitespace so "scan" and " scan" work.
+     */
+    while(*cmd == ' ' || *cmd == '\t') {
+        cmd++;
+    }
 
     if(strcmp(cmd, "scan") == 0) {
         wmbus_scanning_start(app);
@@ -44,7 +60,13 @@ static void wmbus_cli_command(
     }
 
     if(strcmp(cmd, "stats") == 0) {
-        WmbusWorkerStats stats;
+        WmbusWorkerStats stats = {0};
+
+        if(!app->worker) {
+            printf("worker unavailable\r\n");
+            return;
+        }
+
         wmbus_worker_get_stats(app->worker, &stats);
 
         printf(
@@ -67,9 +89,18 @@ static void wmbus_cli_command(
 }
 
 void wmbus_cli_register(WmbusApp* app) {
-    if(wmbus_cli_registry) return;
+    furi_check(app != NULL);
+
+    /*
+     * Only one wmbuster CLI instance should exist.
+     */
+    if(wmbus_cli_registry) {
+        furi_check(wmbus_cli_app == app);
+        return;
+    }
 
     wmbus_cli_registry = furi_record_open(RECORD_CLI);
+    wmbus_cli_app = app;
 
     cli_registry_add_command(
         wmbus_cli_registry,
@@ -80,14 +111,23 @@ void wmbus_cli_register(WmbusApp* app) {
 }
 
 void wmbus_cli_unregister(WmbusApp* app) {
-    UNUSED(app);
+    if(!wmbus_cli_registry) {
+        return;
+    }
 
-    if(!wmbus_cli_registry) return;
+    /*
+     * Don't unregister another app's command accidentally.
+     */
+    if(app != wmbus_cli_app) {
+        return;
+    }
 
     cli_registry_delete_command(
         wmbus_cli_registry,
         "wmbuster");
 
     furi_record_close(RECORD_CLI);
+
     wmbus_cli_registry = NULL;
+    wmbus_cli_app = NULL;
 }
