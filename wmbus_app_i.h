@@ -129,10 +129,7 @@ typedef enum {
 
 typedef struct WmbusApp WmbusApp;
 typedef struct WmbusWorker WmbusWorker;
-typedef struct {
-    bool active;
-    FuriCliSession* session;
-} WmbusCliState;
+
 typedef void (*WmbusTelegramCallback)(
     WmbusApp* app,
     const uint8_t* frame,

@@ -204,6 +204,8 @@ WmbusApp* wmbus_app_alloc_headless(void) {
 
     app->worker = wmbus_worker_alloc(app);
 
+    wmbus_cli_register(app);
+
     return app;
 }
 
@@ -211,6 +213,7 @@ void wmbus_app_free(WmbusApp* app) {
     if(!app) return;
     /* Make sure the LED is off and the radio is parked before we free
      * anything — leaving the cyan blink on after exit was a visible bug. */
+    wmbus_cli_unregister(app);
     wmbus_scanning_stop(app);
     wmbus_worker_free(app->worker);
 
